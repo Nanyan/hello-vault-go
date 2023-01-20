@@ -1,0 +1,7 @@
+go 1.19
+
+use (
+	./quick-start
+	./sample-app
+	./sample-app-with-tls
+)

@@ -16,3 +16,6 @@
 
 # IDE
 .idea
+
+sample-app-with-tls/dev-auto-gen/*
+!sample-app-with-tls/dev-auto-gen/.gitkeep
