@@ -43,9 +43,16 @@ vault auth enable approle
 # ref: https://www.vaultproject.io/api/auth/approle#parameters
 #
 # NOTE: we use artificially low ttl values to demonstrate the credential renewal logic
+# by default, the token max ttl is using the system max TTL, which is 32 days but can be changed in Vault's configuration file.
+# In this case, we set the token_explicit_max_ttl to a low time to see the effect 
 vault write auth/approle/role/dev-role \
-    token_policies=dev-policy
+    token_policies=dev-policy \
+    token_ttl=5s \
+    token_max_ttl=10s \
+    token_explicit_max_ttl=20s
 echo "done write dev-policy"
+
+vault read auth/approle/role/dev-role
 
 # Overwrite our role id with a known value to simplify our demo
 vault write auth/approle/role/dev-role/role-id role_id="${APPROLE_ROLE_ID}"

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
+	"time"
 
 	"github.com/jessevdk/go-flags"
 )
@@ -38,9 +40,11 @@ func main() {
 		log.Fatalf("unable to parse environment variables: %v", err)
 	}
 
-	ctx := context.Background()
+	ctx, cancelContextFunc := context.WithCancel(context.Background())
+	defer cancelContextFunc()
+
 	// vault. the auth token is not used here
-	vault, _, err := NewVaultAppRoleClient(
+	vault, authToken, err := NewVaultAppRoleClient(
 		ctx,
 		VaultParameters{
 			address:             env.VaultAddress,
@@ -53,12 +57,25 @@ func main() {
 		log.Fatalf("unable to initialize vault connection @ %s: %v", env.VaultAddress, err)
 	}
 
+	// start the lease-renewal goroutine & wait for it to finish on exit
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		vault.PeriodicallyRenewLeases(ctx, authToken)
+		wg.Done()
+	}()
+	defer func() {
+		cancelContextFunc()
+		wg.Wait()
+	}()
+
 	fmt.Println()
 	log.Println("secret engine v1:")
 
 	if err := Kvv1ReadWrite(vault); err != nil {
 		log.Fatalf("read write Kvv1 err: %v\n", err)
 	}
+	time.Sleep(3 * time.Second) // Simulate a long time running
 
 	fmt.Println()
 	log.Println("secret engine v2:")
@@ -169,32 +186,40 @@ func Kvv2ReadWrite(vault *Vault) error {
 	log.Println("current vertion value: ", value)
 	log.Printf("VersionMetadata: %s\n", string(jsbytes))
 
-	//get an old version
-	verMeta, err := kvv2.GetVersionsAsList(ctx, keyid)
-	if err != nil {
-		log.Fatalf("unable to GetVersionsAsList: %v", err)
-	}
-	if len(verMeta) <= 1 {
-		log.Fatalf("expect 2 versions, but only get %v", len(verMeta))
-	}
-	oldVer := verMeta[len(verMeta)-2]
-	secret, err = kvv2.GetVersion(ctx, keyid, oldVer.Version)
+	secret, err = kvv2.GetVersion(ctx, keyid, secret.VersionMetadata.Version-1)
 	if err != nil {
 		log.Fatalf("unable to read secret: %v", err)
 	}
 	log.Println("oldVersion value: ", secret.Data["password"])
 
+	//get an old version
+	// verMeta, err := kvv2.GetVersionsAsList(ctx, keyid)
+	// if err != nil {
+	// 	log.Fatalf("unable to GetVersionsAsList: %v", err)
+	// }
+	// if len(verMeta) <= 1 {
+	// 	log.Fatalf("expect 2 versions, but only get %v", len(verMeta))
+	// }
+	// oldVer := verMeta[len(verMeta)-2]
+	// secret, err = kvv2.GetVersion(ctx, keyid, oldVer.Version)
+	// if err != nil {
+	// 	log.Fatalf("unable to read secret: %v", err)
+	// }
+	// log.Println("oldVersion value: ", secret.Data["password"])
+
 	// rollback == get OldVersion and than put it as a new version
+	oldVer := secret.VersionMetadata
 	secret, _ = kvv2.Rollback(ctx, keyid, oldVer.Version)
 	jsbytes, _ = json.Marshal(secret.VersionMetadata)
 	log.Println("rollback return: ", secret.Data["password"], "version meta: ", string(jsbytes))
 	secret, _ = kvv2.Get(ctx, keyid)
 	log.Println("value after rollback: ", secret.Data["password"])
 
-	verMeta, _ = kvv2.GetVersionsAsList(ctx, keyid)
-	log.Println("versions after rollback:")
-	for _, v := range verMeta {
-		log.Println(v.Version, v.CreatedTime, v.DeletionTime, v.Destroyed)
-	}
+	// verMeta, _ = kvv2.GetVersionsAsList(ctx, keyid)
+	// log.Println("versions after rollback:")
+	// for _, v := range verMeta {
+	// 	log.Println(v.Version, v.CreatedTime, v.DeletionTime, v.Destroyed)
+	// }
+
 	return nil
 }
