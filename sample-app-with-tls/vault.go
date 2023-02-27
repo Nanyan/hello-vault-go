@@ -35,7 +35,7 @@ func NewVaultAppRoleClient(ctx context.Context, parameters VaultParameters) (*Va
 	config := vault.DefaultConfig() // modify for more granular configuration
 	config.Address = strings.TrimSpace(parameters.address)
 	if strings.HasPrefix(config.Address, "https") {
-		config.ConfigureTLS(&vault.TLSConfig{CACert: parameters.caCertFile, Insecure: true})
+		config.ConfigureTLS(&vault.TLSConfig{CACert: parameters.caCertFile})
 	}
 
 	client, err := vault.NewClient(config)
